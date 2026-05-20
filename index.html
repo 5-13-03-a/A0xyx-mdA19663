@@ -22,8 +22,7 @@
     <link rel="stylesheet" href="css/-A-05-chat-app.css">
     <link rel="stylesheet" href="css/-A-06-chat-detail.css">
     <link rel="stylesheet" href="css/-A-07-chat-room.css">
-    <link rel="stylesheet" href="css/-A-08-chat-detail-alt.css" id="css08">
-    <script>document.getElementById('css08').href+='?t='+Date.now();</script>
+    <link rel="stylesheet" href="css/-A-08-chat-detail-alt.css">
     <link rel="stylesheet" href="css/-A-09-chat-detail-alt-settings.css">
     <link rel="stylesheet" href="css/-A-10-splash.css">
 </head>
@@ -93,16 +92,6 @@
     <script src="js/-A-18-errbook.js"></script>
     <script src="js/-A-19-api-fab.js"></script>
     <script src="js/-A-20-multi-select.js"></script>
-    <script>
-        // 自动破缓存：给所有 CSS 和 JS 加时间戳
-        document.querySelectorAll('link[rel="stylesheet"],script[src]').forEach(function(el){
-            var attr=el.href?'href':'src';
-            var url=el.getAttribute(attr);
-            if(url&&url.indexOf('googleapis')===-1&&url.indexOf('gstatic')===-1){
-                el.setAttribute(attr,url+(url.indexOf('?')===-1?'?':'&')+'_t='+Date.now());
-            }
-        });
-    </script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
