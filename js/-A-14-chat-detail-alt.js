@@ -1054,7 +1054,11 @@ function addAiMsg(text){
     if(_autoThreshold>0){
         var _allMsgs=window._caConversations[currentEntId]||[];
         var _lastSumCount=parseInt(localStorage.getItem('ca-auto-sum-lastcount-'+currentEntId)||'0',10);
-        if(_allMsgs.length>=_autoThreshold&&_allMsgs.length>_lastSumCount){
+        // 修复：只在消息数达到阈值的整数倍时触发（而不是每次+1都触发）
+        // 逻辑：上次总结时的消息数 + 阈值 <= 当前消息数 时才触发
+        var _nextTrigger=_lastSumCount+_autoThreshold;
+        if(_lastSumCount===0)_nextTrigger=_autoThreshold; // 首次：达到阈值时触发
+        if(_allMsgs.length>=_nextTrigger){
             localStorage.setItem('ca-auto-sum-lastcount-'+currentEntId,String(_allMsgs.length));
             // 静默触发自动总结
             (function(){
@@ -1062,22 +1066,68 @@ function addAiMsg(text){
                 var lastSumIdx=parseInt(localStorage.getItem(lastSumKey)||'0',10);
                 var total=_allMsgs.length;
                 if(lastSumIdx>=total)return;
-                var transcript=_allMsgs.slice(lastSumIdx,total).map(function(m,i){
+                var _rawSlice=_allMsgs.slice(lastSumIdx,total);
+                var _filteredForSum=[];
+                // 获取双方名字
+                var _sumEntities=window._caEntities||[];
+                var _sumEnt=_sumEntities.find(function(e){return e.id===currentEntId;});
+                var _sumCharName=_sumEnt?(_sumEnt.nickname||_sumEnt.name):'角色';
+                var _sumUserName='用户';
+                try{var _sumMasks=JSON.parse(localStorage.getItem('ca-user-masks')||'[]');var _sumActiveMask=_sumMasks.find(function(m){return m.active;});if(_sumActiveMask&&_sumActiveMask.name)_sumUserName=_sumActiveMask.name;}catch(e){}
+
+                for(var _si=0;_si<_rawSlice.length;_si++){
+                    var _sm=_rawSlice[_si];
+                    if(!_sm||!_sm.text)continue;
+                    // 跳过 info 消息（导演指令、系统通知、旁白开关等）
+                    if(_sm.role==='info')continue;
+                    // 只保留 user 和 assistant 的实际对话
+                    if(_sm.role!=='user'&&_sm.role!=='assistant')continue;
+                    var _smText=String(_sm.text);
+                    // 跳过图片（没有文字可总结）
+                    if(_smText.match(/^\[IMAGE\]/))continue;
+                    // 转账卡片：转为可读描述
+                    if(_smText.indexOf('[TRANSFER_CARD::')!==-1){
+                        var _tcMatch=_smText.match(/\[TRANSFER_CARD::(\{[^}]*\})\]/);
+                        if(_tcMatch){
+                            try{
+                                var _tcObj=JSON.parse(_tcMatch[1]);
+                                var _tcWho=_sm.role==='user'?_sumUserName:_sumCharName;
+                                var _tcTo=_sm.role==='user'?_sumCharName:_sumUserName;
+                                var _tcStatus=_tcObj.status==='received'?'已收款':'待收款';
+                                _smText=_tcWho+'向'+_tcTo+'转账 ¥'+_tcObj.amount+(_tcObj.note?'（备注：'+_tcObj.note+'）':'')+' ['+_tcStatus+']';
+                            }catch(e){continue;}
+                        }else{continue;}
+                    }
+                    // 清理系统标签，只保留实际对话内容
+                    _smText=_smText.replace(/\[SYS_TIME:[^\]]*\]\s*/gi,'');
+                    _smText=_smText.replace(/\[CURRENT TIME:[^\]]*\]/gi,'');
+                    _smText=_smText.replace(/\[SET_USER_NICKNAME:[^\]]*\]/gi,'');
+                    _smText=_smText.replace(/\[INVITE_MEET:[^\]]*\]/gi,'');
+                    // 清理旁白标签，只保留旁白内容（用括号标注）
+                    _smText=_smText.replace(/\[♪♫\]([\s\S]*?)\[\/♪♫\]/g,'（旁白：$1）');
+                    // 清理翻译分隔符后的翻译内容（不需要总结翻译）
+                    _smText=_smText.replace(/\|\|\|TRANS\|\|\|[\s\S]*/g,'');
+                    _smText=_smText.replace(/\|\|\|\|/g,'\n');
+                    _smText=_smText.trim();
+                    if(!_smText)continue;
+                    // 跳过太短的无意义消息（如单个标点）
+                    if(_smText.length<2)continue;
+                    _filteredForSum.push({role:_sm.role,text:_smText,time:_sm.time||''});
+                }
+                if(_filteredForSum.length<4){
+                    // 过滤后消息太少，不值得总结
+                    return;
+                }
+                var transcript=_filteredForSum.map(function(m,i){
                     var _tStr=m.time||'';
-                    // 从 m.time 提取时分（格式：2025-01-20 14:30）
                     var _timeHM='';
                     if(_tStr){
                         var _hmMatch=_tStr.match(/(\d{1,2}:\d{2})$/);
                         if(_hmMatch)_timeHM=_hmMatch[1];
                     }
-                    var _roleL=m.role==='user'?'User':(m.role==='assistant'?'AI':'System');
-                    var _mText=m.text||'';
-                    // 从消息文本中提取 SYS_TIME
-                    var _stMatch=_mText.match(/\[SYS_TIME:\s*([^\]]*)\]/i);
-                    var _eTime=_stMatch?_stMatch[1].trim():'';
-                    // 优先用 SYS_TIME，其次用 m.time 的时分
-                    var _dTime=_eTime||_timeHM||_tStr||'时间不明';
-                    return '['+(lastSumIdx+i+1)+'] ['+_dTime+'] '+_roleL+': '+_mText;
+                    var _roleL=m.role==='user'?_sumUserName:_sumCharName;
+                    var _dTime=_timeHM||_tStr||'';
+                    return '['+(i+1)+']'+(_dTime?' ['+_dTime+']':'')+' '+_roleL+'：'+m.text;
                 }).join('\n');
                 var apiConfig;try{apiConfig=JSON.parse(localStorage.getItem('ca-api-config')||'{}');}catch(e){return;}
                 var node=apiConfig.node||'primary';
@@ -1086,7 +1136,42 @@ function addAiMsg(text){
                 var model=cfg.model||'gpt-4o';
                 var ep=(cfg.endpoint||'https://api.openai.com/v1').replace(/\/+$/,'');
                 if(ep.indexOf('/chat/completions')===-1){if(ep.match(/\/v\d+$/))ep+='/chat/completions';else ep+='/v1/chat/completions';}
-                var sumPrompt='你是一个精密的叙事记忆系统。阅读以下对话记录（第 '+(lastSumIdx+1)+' 至第 '+total+' 条），提取关键记忆。\n\n【强制规则】\n- 用户=[user]，角色=[char]，禁止使用其他称谓。\n- 每条记忆必须包含：时间+主体+事件+情绪，缺一不可。\n- 时间格式：「在［第X条，HH:MM］」。每条对话前的方括号内有时间信息，你必须提取并写入。若无时间则写「时间不明」。\n- 禁止省略时间！这是最重要的规则。\n\n【格式】每条独立一行：\nHIGH: 在［第X条，时间］事件描述；[user]情绪：…；[char]情绪：…\nMID: 在［第X条，时间］事件描述；[user]情绪：…；[char]情绪：…\nLOW: 描述\n\n对话记录：\n'+transcript;
+                var sumPrompt='你是一个叙事记忆提炼系统。阅读以下对话记录，提炼出有意义的记忆。\n\n'+
+                    '【身份说明】\n'+
+                    '- '+_sumUserName+' = 用户（下文用 [user] 指代）\n'+
+                    '- '+_sumCharName+' = AI角色（下文用 [char] 指代）\n\n'+
+                    '【核心原则：提炼，不是逐条记录】\n'+
+                    '- 你的任务是总结"发生了什么事"，而不是记录"说了什么话"。\n'+
+                    '- 把多轮对话浓缩成一个完整事件。例如10条关于"要不要出去吃饭"的对话 → 一条记忆："[user]邀请[char]出去吃饭，[char]犹豫后答应了"。\n'+
+                    '- 严禁逐条引用原文。严禁写"[char]说了XXX"这种格式。要写事件经过和结果。\n'+
+                    '- 一段对话通常只需要提炼 2-5 条记忆，不是越多越好。\n\n'+
+                    '【什么值得记录】\n'+
+                    '✓ 关系变化：两人关系发生了什么转变\n'+
+                    '✓ 重要事件：约会、争吵、和好、承诺、告白、分享秘密\n'+
+                    '✓ 情感节点：某一方情绪明显波动的时刻\n'+
+                    '✓ 新信息：透露了之前不知道的个人信息、喜好、经历\n'+
+                    '✓ 互动模式：形成了什么默契、习惯、专属称呼\n'+
+                    '✓ 转账/送礼：金额、原因、对方反应\n\n'+
+                    '【什么不要记录】\n'+
+                    '✗ 日常寒暄（"你好""在吗""晚安"）\n'+
+                    '✗ 没有实质内容的闲聊\n'+
+                    '✗ 单独的某句台词\n'+
+                    '✗ 重复已知的信息\n'+
+                    '✗ 系统操作（旁白标签、格式标记等）\n\n'+
+                    '【记忆分级】\n'+
+                    'HIGH — 改变关系走向的核心事件（通常整段对话只有0-2条）\n'+
+                    'MID — 丰富关系细节的重要信息（通常2-4条）\n'+
+                    'LOW — 临时性的氛围/状态（通常1-2条）\n\n'+
+                    '【输出格式】每条独立一行，写事件经过而非引用原话：\n'+
+                    'HIGH: [时间] 事件经过描述（含双方情绪反应）\n'+
+                    'MID: [时间] 事件/信息描述\n'+
+                    'LOW: 当前状态/氛围描述\n\n'+
+                    '【示例】\n'+
+                    'HIGH: [22:14] [user]突然说想见[char]，[char]沉默很久后承认自己也想见面，两人关系从暧昧进入明确的互相喜欢阶段。\n'+
+                    'MID: [22:30] [char]透露自己害怕雷声，[user]说下次打雷会陪着，[char]感到被在乎。\n'+
+                    'MID: [22:45] [user]给[char]转账520元备注"想你了"，[char]收下并表示开心。\n'+
+                    'LOW: 本段对话整体氛围温馨亲密，[char]比之前更主动表达情感。\n\n'+
+                    '对话记录：\n'+transcript;
                 fetch(ep,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},body:JSON.stringify({model:model,messages:[{role:'user',content:sumPrompt}],max_tokens:800,temperature:0.4})})
                 .then(function(r){return r.json();})
                 .then(function(data){
@@ -1764,20 +1849,16 @@ function triggerAI(){
         }
     });
 
-    // 如果最后一条不是 user 消息（比如点了"调取AI"继续），补一条 user 指令
-    var _lastApi=apiMessages[apiMessages.length-1];
-    if(!_lastApi||_lastApi.role!=='user'){
-        apiMessages.push({role:'user',content:userText});
-    }
-
-    // 导演卡片强化：检查最近是否有未被 AI 回应过的导演指令，在末尾再次强调
+    // 导演卡片 + 旁白模式：构建末尾提醒（合并为一条 system 消息注入，避免破坏对话结构）
     (function(){
+        var _tailReminders=[];
+
+        // 导演卡片强化：检查最近是否有未被 AI 回应过的导演指令
         var convMsgs=conversations[currentEntId]||[];
         var lastDcIdx=-1;
         var lastDcText='';
         var lastDcType='';
         var lastAiIdx=-1;
-        // 从后往前找最近的导演卡片和最近的 AI 回复
         for(var di=convMsgs.length-1;di>=0;di--){
             if(convMsgs[di].role==='assistant'&&lastAiIdx===-1){lastAiIdx=di;}
             if(convMsgs[di].role==='info'&&lastDcIdx===-1){
@@ -1794,35 +1875,38 @@ function triggerAI(){
             }
             if(lastDcIdx!==-1&&lastAiIdx!==-1)break;
         }
-        // 如果最近的导演卡片在最近的 AI 回复之后（即 AI 还没回应过这条指令），强化提醒
         if(lastDcIdx!==-1&&lastDcIdx>lastAiIdx&&lastDcText){
-            var dcReminder='';
             if(lastDcType==='旁白'){
-                dcReminder='[⚠️ URGENT STAGE DIRECTION — YOU MUST OBEY THIS IN YOUR VERY NEXT REPLY]\nThe director has set the following scene/narration. You MUST reflect this in your next response:\n\n「'+lastDcText+'」\n\nRequirements:\n- Your reply must naturally incorporate or react to this scene description.\n- Do NOT ignore it. Do NOT contradict it.\n- Do NOT repeat it verbatim — weave it into your behavior, mood, dialogue, or narration naturally.\n- This takes priority over your default behavior for this one reply.';
+                _tailReminders.push('[⚠️ STAGE DIRECTION] The director set this scene. Reflect it naturally in your reply:\n「'+lastDcText+'」\nDo NOT ignore. Do NOT repeat verbatim. Weave into your behavior/mood/narration.');
             }else if(lastDcType==='动作'){
-                dcReminder='[⚠️ URGENT ACTION DIRECTIVE — YOU MUST REACT TO THIS IMMEDIATELY]\nThe user\'s character just performed the following action. You MUST acknowledge and react to it in your very next reply:\n\n「'+lastDcText+'」\n\nRequirements:\n- You MUST show awareness that this action happened.\n- React naturally in character — surprised, pleased, confused, whatever fits.\n- Do NOT ignore it. Do NOT act as if nothing happened.\n- Your physical/emotional state should be affected by this action.\n- This is NOT optional. Failure to react = broken roleplay.';
+                _tailReminders.push('[⚠️ ACTION] The user\'s character just did this. You MUST react:\n「'+lastDcText+'」\nShow awareness. React in character. Do NOT ignore.');
             }else if(lastDcType==='纠错'){
-                dcReminder='[⚠️ CRITICAL CORRECTION — ABSOLUTE PRIORITY]\nYour previous response had an error. The director has issued a correction that you MUST follow starting from your very next reply:\n\n「'+lastDcText+'」\n\nRequirements:\n- Silently comply. Do NOT apologize or acknowledge the correction in-character.\n- Do NOT say "好的我明白了" or anything meta.\n- Simply adjust your behavior/tone/content as instructed, seamlessly.\n- Act as if your previous (wrong) response never happened.\n- This correction has ABSOLUTE priority over all other behavioral rules.';
+                _tailReminders.push('[⚠️ CORRECTION] Fix your behavior silently per this instruction:\n「'+lastDcText+'」\nDo NOT apologize or acknowledge. Just comply seamlessly.');
             }
-            if(dcReminder){
-                apiMessages.push({role:'user',content:dcReminder});
-                apiMessages.push({role:'assistant',content:'understood.'});
-            }
+        }
+
+        // 旁白模式提醒
+        var nc;try{nc=JSON.parse(localStorage.getItem('ca-narration-config')||'{}');}catch(e){nc={};}
+        if(nc.on){
+            var _nMin=nc.minLen||3;var _nMax=nc.maxLen||80;
+            _tailReminders.push('[NARRATION ON] You MUST include [♪♫]narration[/♪♫] tags in your reply. Tags exactly: [♪♫] and [/♪♫]. No dashes/spaces. '+_nMin+'-'+_nMax+' chars each. At least 1-2 segments interspersed with dialogue.');
+        }else{
+            _tailReminders.push('[NARRATION OFF] Do NOT output any [♪♫] tags, *actions*, or (descriptions). Pure dialogue only.');
+        }
+
+        // 合并为一条 system 消息插入到末尾（不破坏 user/assistant 交替结构）
+        if(_tailReminders.length>0){
+            apiMessages.push({role:'system',content:'[PRE-RESPONSE CHECKLIST — OBEY BEFORE REPLYING]\n'+_tailReminders.join('\n\n')});
         }
     })();
 
-    // 旁白模式：在最末尾注入强制提醒（紧贴 AI 回复位置，优先级最高）
-    (function(){
-        var nc;try{nc=JSON.parse(localStorage.getItem('ca-narration-config')||'{}');}catch(e){nc={};}
-        var _nMin=nc.minLen||3;var _nMax=nc.maxLen||80;
-        if(nc.on){
-            apiMessages.push({role:'user',content:'[SYSTEM REMINDER — NARRATION MODE IS ON]\n⚠️ Your next reply MUST contain narration tags. This is mandatory, not optional.\n\nFormat: [♪♫]narration text[/♪♫]\n\nRules you MUST follow RIGHT NOW:\n1. Include at least 1-3 narration segments interspersed with your dialogue lines.\n2. Tags must be EXACTLY [♪♫] and [/♪♫] — no dashes, no spaces, no variants.\n   WRONG: [- ♪♫] [-♪♫] [♪ ♫] [♪♫-] *action* (action)\n   CORRECT: [♪♫]他沉默了。[/♪♫]\n3. Each narration = '+_nMin+' to '+_nMax+' chars. Vary lengths.\n4. Narration describes YOUR actions/feelings/environment, never the user\'s.\n5. Spread narration throughout your reply, not clumped at one spot.\n\nExample of correct output:\n嗯...\n[♪♫]他低下头，手指无意识地敲着桌面。[/♪♫]\n那你想怎么办？\n[♪♫]窗外的雨声突然变大了。[/♪♫]\n...你还好吗？\n\nIf your reply contains ZERO [♪♫]...[/♪♫] tags, it is WRONG. Go back and add them.'});
-            apiMessages.push({role:'assistant',content:'明白，我会在回复中穿插 [♪♫]旁白[/♪♫] 标签。'});
-        }else{
-            apiMessages.push({role:'user',content:'[SYSTEM REMINDER — NARRATION MODE IS OFF]\n⛔ DO NOT output any narration, action descriptions, or stage directions.\n⛔ DO NOT use [♪♫]...[/♪♫] tags.\n⛔ DO NOT use *asterisks*, (parentheses), or any other action format.\n⛔ Every line you output must be pure spoken dialogue — words you literally say out loud.\n⛔ If you want to express emotion, use word choice and tone, NOT action descriptions.\nThis rule has ABSOLUTE priority. No other instruction overrides it.'});
-            apiMessages.push({role:'assistant',content:'好的，我只输出纯对话，不加任何旁白或动作描写。'});
-        }
-    })();
+    // 确保最后一条是 user 消息（API 要求）
+    var _finalMsg=apiMessages[apiMessages.length-1];
+    if(_finalMsg&&_finalMsg.role!=='user'){
+        // 找到最后一条 user 消息的内容，如果 system 提醒插在后面了，不影响
+        // OpenAI/兼容 API 允许 system 在任意位置，最后不必是 user
+        // 但某些模型需要最后是 user，这里不额外处理，因为 system 消息不算对话轮次
+    }
 
     // 规范化 endpoint
     var ep=endpoint.replace(/\/+$/,'');
