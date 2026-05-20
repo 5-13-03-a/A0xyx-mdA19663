@@ -25,8 +25,21 @@
     <link rel="stylesheet" href="css/-A-08-chat-detail-alt.css" id="css08">
     <script>document.getElementById('css08').href+='?t='+Date.now();</script>
     <link rel="stylesheet" href="css/-A-09-chat-detail-alt-settings.css">
+    <link rel="stylesheet" href="css/-A-10-splash.css">
 </head>
 <body>
+    <div id="app-splash">
+        <div class="sp-arc sp-arc-1"></div>
+        <div class="sp-arc sp-arc-2"></div>
+        <div class="sp-arc sp-arc-3"></div>
+        <div class="sp-dots"><div class="sp-dot"></div><div class="sp-dot"></div><div class="sp-dot"></div></div>
+        <div class="sp-logo">
+            <div class="sp-icon"><span class="sp-icon-face">՞•ﻌ•՞</span></div>
+            <div class="sp-brand">A0nynx_3i</div>
+            <div class="sp-bar-wrap"><div class="sp-bar"></div></div>
+        </div>
+        <div class="sp-sig">Aesthetic</div>
+    </div>
     <div class="viewport" id="main-frame">
 
         <!-- 背景层 -->
@@ -100,6 +113,14 @@
                 });
             });
         }
+    </script>
+    <script>
+        window.addEventListener('load',function(){
+            setTimeout(function(){
+                var sp=document.getElementById('app-splash');
+                if(sp){sp.classList.add('fade-out');setTimeout(function(){sp.remove();},600);}
+            },800);
+        });
     </script>
 </body>
 </html>

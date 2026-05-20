@@ -3728,6 +3728,8 @@ function hideApiStatus(){
     }
 
     function saveAndFilter(el,regex){
+        // 跳过包含翻译子元素的气泡（避免破坏翻译 HTML 结构）
+        if(el.querySelector&&(el.querySelector('.cda-tr-s1,.cda-tr-s5-trans,.cda-tr-s7-split,.cda-tr-s8-trans,.cda-tr-s3-ghost,.cda-tr-s9-ref,.cda-tr-s10-stamp')))return;
         // 保存原始文本（只保存一次）
         if(!el.getAttribute('data-original-text')){
             el.setAttribute('data-original-text',el.textContent);
