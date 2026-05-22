@@ -134,7 +134,8 @@ function renderMessages(){
     if(!ent)return;
 
     // 如果内存中已有数据（删除/新增后），直接用内存渲染，不走异步DB
-    if(window._caConversations&&window._caConversations[currentEntId]){
+    // 也包括值为空数组的情况（用户清空了聊天）
+    if(window._caConversations&&window._caConversations[currentEntId]!==undefined&&window._caConversations[currentEntId]!==null){
         if(syncAnimating)return;
         doRenderMessages(area,ent);
         var renderedCount=area.querySelectorAll('.cda-msg-row,.cda-dc-notif-row,.cda-narr-line').length;
@@ -1220,6 +1221,9 @@ function doRenderMessages(area,ent){
     area.scrollTop=area.scrollHeight-area.clientHeight;
     console.log('[CDA Debug] area childNodes after render:', area.childNodes.length);
 }
+
+// 暴露给多选删除模块
+window._cdaDoRenderMessages=function(area,ent){doRenderMessages(area,ent);};
 
 function addUserMsg(text){
     if(!currentEntId)return;

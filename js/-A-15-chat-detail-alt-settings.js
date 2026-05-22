@@ -446,12 +446,12 @@ function bindSettingsEvents(entId){
             var img=new Image();
             img.onload=function(){
                 var canvas=document.createElement('canvas');
-                var size=200;canvas.width=size;canvas.height=size;
+                var size=Math.min(512,Math.min(img.width,img.height));canvas.width=size;canvas.height=size;
                 var ctx=canvas.getContext('2d');
                 var min=Math.min(img.width,img.height);
                 var sx=(img.width-min)/2,sy=(img.height-min)/2;
                 ctx.drawImage(img,sx,sy,min,min,0,0,size,size);
-                var dataUrl=canvas.toDataURL('image/jpeg',0.7);
+                var dataUrl=canvas.toDataURL('image/jpeg',0.85);
                 var entities=window._caEntities||[];
                 var ent=entities.find(function(e){return e.id===entId;});
                 if(!ent)return;
