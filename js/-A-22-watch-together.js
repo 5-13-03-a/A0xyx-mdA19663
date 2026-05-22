@@ -85,8 +85,11 @@ function buildAll(){
     upload.innerHTML=
         '<div class="wt-up-masthead">'+
             '<div class="wt-up-masthead-top">'+
-                '<div><div class="wt-up-issue">VOL. I · NO. 01 · ARCHIVE EDITION</div></div>'+
-                '<div id="wtUploadClose" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0.4;transition:opacity 0.15s;"><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:#0e0e0e;fill:none;stroke-width:2;stroke-linecap:round;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>'+
+                '<div style="display:flex;align-items:center;gap:12px;">'+
+                    '<div id="wtUploadBack" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0.4;"><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:#0e0e0e;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><polyline points="15 18 9 12 15 6"/></svg></div>'+
+                    '<div class="wt-up-issue">VOL. I · NO. 01 · ARCHIVE EDITION</div>'+
+                '</div>'+
+                '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" style="opacity:0.15;"><rect x="1" y="1" width="26" height="26" stroke="#0e0e0e" stroke-width="0.8"/><rect x="5" y="5" width="18" height="18" stroke="#0e0e0e" stroke-width="0.5"/><line x1="14" y1="1" x2="14" y2="27" stroke="#0e0e0e" stroke-width="0.5"/><line x1="1" y1="14" x2="27" y2="14" stroke="#0e0e0e" stroke-width="0.5"/></svg>'+
             '</div>'+
             '<div class="wt-up-logo">Watch<em>.</em></div>'+
             '<div class="wt-up-tagline">A Shared Reading Experience — Together in Every Word</div>'+
@@ -202,10 +205,8 @@ function buildAll(){
 
 /* ═══ Events ═══ */
 function bindAllEvents(){
-    // Upload close
-    document.getElementById('wtUploadClose').addEventListener('click',function(){
-        closeUpload();
-    });
+    // Upload back
+    document.getElementById('wtUploadBack').addEventListener('click',closeUpload);
 
     // Upload CTA
     document.getElementById('wtUploadCta').addEventListener('click',function(){
