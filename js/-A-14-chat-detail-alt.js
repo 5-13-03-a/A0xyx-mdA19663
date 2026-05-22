@@ -184,9 +184,13 @@ function renderMessages(){
                     if(_newText.indexOf('||||')!==-1){
                         _newText=_newText.replace(/\|\|\|\|/g,'\n');
                     }
-                    // 规范化翻译分隔符变体
+                    // 规范化翻译分隔符变体（含前后空格）
                     if(_newText.indexOf('|')!==-1&&/\|{2,4}\s*[Tt][Rr][Aa][Nn][Ss]\s*\|{2,4}/.test(_newText)){
                         _newText=_newText.replace(/\|{2,4}\s*[Tt][Rr][Aa][Nn][Ss]\s*\|{2,4}/g,'|||TRANS|||');
+                    }
+                    // 去掉分隔符前后的空格（AI有时会加空格）
+                    if(_newText.indexOf('|||TRANS|||')!==-1){
+                        _newText=_newText.replace(/\s*\|\|\|TRANS\|\|\|\s*/g,'|||TRANS|||');
                     }
                     // 修复所有变体的旁白标签格式错误
                     if(_newText.indexOf('♪')!==-1||_newText.indexOf('♫')!==-1){
@@ -2952,10 +2956,11 @@ function render(entId){
     });
 
     // 全局事件委托：翻译气泡点击展开
-    var _cdaTrArea=document.getElementById('cdaMsgArea');
-    if(_cdaTrArea&&!_cdaTrArea.dataset.transBound){
-        _cdaTrArea.dataset.transBound='true';
-        _cdaTrArea.addEventListener('click',function(e){
+    // 全局事件委托：翻译气泡点击展开（绑在 chatDetailAlt 上，不受重渲染影响）
+    var _cdaTrEl=document.getElementById('chatDetailAlt');
+    if(_cdaTrEl&&!_cdaTrEl.dataset.transBound){
+        _cdaTrEl.dataset.transBound='true';
+        _cdaTrEl.addEventListener('click',function(e){
             var bubble=e.target.closest('.cda-bubble.cda-tr-has');
             if(bubble){
                 bubble.classList.toggle('cda-tr-active');
@@ -4256,6 +4261,8 @@ function addTransNotice(style,lang){
         aiText='[⚠ BILINGUAL MODE ACTIVATED — MANDATORY FORMAT REMINDER]\n'+'From this point forward, you MUST use the bilingual format for EVERY reply.\n'+
             'Format: Write your reply naturally first, then add "|||TRANS|||" followed by the '+_tl+' translation.\n'+
             'Example:想你了|||TRANS|||I miss you\n'+
+            'CRITICAL: NO spaces around the delimiter. WRONG: "想你了 |||TRANS||| I miss you" — RIGHT: "想你了|||TRANS|||I miss you"\n'+
+            'The delimiter must be glued directly to the text on both sides, zero spaces allowed.\n'+
             'If your reply has multiple lines (split by newline), EACH line must contain "|||TRANS|||".\n'+
             'DO NOT skip the translation. DO NOT forget the delimiter. This is non-negotiable.';
     }else{
