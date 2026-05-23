@@ -975,6 +975,9 @@ function doRenderMessages(area,ent){
         if(isSent&&avatarCfg.sent){
             var activeMask=getActiveMaskForEntity(currentEntId);
             var _sentAv=_cachedMaskAvatar;
+            var _sentAvContent=_sentAv
+                ?'<img src="'+_sentAv+'">'
+                :'<span style="font-size:9px;font-weight:700;color:#fff;">'+(activeMask&&activeMask.name?activeMask.name.charAt(0).toUpperCase():'U')+'</span>';
             if(isLast){
                 if(_sentAv){
                     sentAvHtml='<div class="cda-msg-av cda-sent-av"><img src="'+_sentAv+'"></div>';
@@ -983,7 +986,7 @@ function doRenderMessages(area,ent){
                     sentAvHtml='<div class="cda-msg-av cda-sent-av" style="background:#4a4a4f;">'+myInitial+'</div>';
                 }
             }else{
-                sentAvHtml='<div class="cda-msg-av cda-sent-av hidden"></div>';
+                sentAvHtml='<div class="cda-msg-av cda-sent-av hidden" style="background:#4a4a4f;">'+_sentAvContent+'</div>';
             }
         }
 
@@ -2497,6 +2500,13 @@ function getInputBarHtml(){
                 '<button class="cda-input-send" id="cdaSend" style="width:38px;height:38px;border-radius:12px;border:none;background:#1a1a1f;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;"><svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>'+
             '</div>'+
         '</div>';
+    }else if(style==='f'){
+        return '<div class="cda-input-bar cda-bar-f" style="background:#fff;border-top:0.5px solid rgba(0,0,0,0.05);padding:0 12px;display:flex;align-items:center;gap:8px;min-height:52px;">'+
+            '<div id="cdaPlusBtn" style="width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,0.04);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:rgba(0,0,0,0.4);fill:none;stroke-width:2;stroke-linecap:round;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>'+
+            '<textarea class="cda-input-field" rows="1" placeholder="Message" id="cdaInput" style="flex:1;height:36px;border-radius:18px;border:0.5px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.03);padding:0 14px;font-size:13px;color:#1a1a1f;outline:none;resize:none;line-height:36px;"></textarea>'+
+            '<button class="cda-input-invoke" id="cdaInvoke" style="width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,0.04);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;"><svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:rgba(0,0,0,0.35);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></button>'+
+            '<button class="cda-input-send" id="cdaSend" style="width:32px;height:32px;border-radius:50%;border:none;background:#1a1a1f;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;"><svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>'+
+        '</div>';
     }
     // default - 原始样式
     return '<div class="cda-input-bar">'+
@@ -2928,19 +2938,87 @@ function render(entId){
     // 重置显示限制
     _cdaBubbleLimit=80;
 
-    // 应用气泡字体
+    // 应用气泡字体（从IndexedDB加载）
     (function(){
+        var cfg;try{cfg=JSON.parse(localStorage.getItem('ca-bubble-font')||'{}');}catch(e){cfg={};}
+        var size=cfg.size||13;
+        var fontName=(cfg.name||'').trim();
+        var fontUrl=(cfg.url||'').trim();
+        var fontDataUrl=(cfg._dataUrl||'').trim();
+        var hasIDB=!!cfg._hasIDB;
+        // 先注入字号（立即生效）
+        _cdaInjectFontCSS(size,fontName,'');
+        // 从IndexedDB异步加载字体数据
+        if(hasIDB&&fontName&&typeof ChatDB!=='undefined'&&ChatDB.open){
+            ChatDB.open(function(d){
+                if(!d)return;
+                var tx=d.transaction('avatars','readonly');
+                var req=tx.objectStore('avatars').get('font_custom');
+                req.onsuccess=function(){
+                    var idbData=(req.result&&req.result.data)?req.result.data:'';
+                    if(idbData&&window.FontFace){
+                        var ff=new FontFace(fontName,'url('+idbData+')');
+                        ff.load().then(function(loaded){
+                            document.fonts.add(loaded);
+                            _cdaInjectFontCSS(size,fontName,idbData);
+                        }).catch(function(){});
+                    }
+                };
+            });
+        }else if(fontName&&(fontUrl||fontDataUrl)){
+            var actualUrl=fontDataUrl||fontUrl;
+            var isCssUrl=fontUrl.match(/\.css(\?|$)/i)||fontUrl.indexOf('fonts.googleapis.com')!==-1;
+            var isDataUrl=actualUrl.indexOf('data:')===0;
+            if(isCssUrl&&!isDataUrl){
+                var oldLink=document.getElementById('cda-bubble-font-link');
+                if(oldLink)oldLink.parentNode.removeChild(oldLink);
+                var link=document.createElement('link');
+                link.id='cda-bubble-font-link';
+                link.rel='stylesheet';
+                link.href=fontUrl;
+                document.head.appendChild(link);
+            }else if(window.FontFace){
+                var ff2=new FontFace(fontName,'url('+actualUrl+')');
+                ff2.load().then(function(loaded){
+                    document.fonts.add(loaded);
+                    _cdaInjectFontCSS(size,fontName,actualUrl);
+                }).catch(function(){});
+            }
+            _cdaInjectFontCSS(size,fontName,actualUrl);
+        }
+    })();
+    function _cdaInjectFontCSS(size,fontName,fontSrc){
         var styleId='cda-bubble-font-style';
         var existing=document.getElementById(styleId);
         if(existing)existing.parentNode.removeChild(existing);
-        var cfg;try{cfg=JSON.parse(localStorage.getItem('ca-bubble-font')||'{}');}catch(e){cfg={};}
         var css='';
-        if(cfg.url&&cfg.name){css+='@font-face{font-family:"'+cfg.name+'";src:url("'+cfg.url+'");font-display:swap;}\n';}
-        var size=cfg.size||13;
-        css+='.cda-bubble{font-size:'+size+'px!important;}\n';
-        if(cfg.name){css+='.cda-bubble{font-family:"'+cfg.name+'",-apple-system,BlinkMacSystemFont,sans-serif!important;}\n';}
+        if(fontSrc&&fontName){
+            var isDataUrl=fontSrc.indexOf('data:')===0;
+            if(isDataUrl){
+                css+='@font-face{font-family:"'+fontName+'";src:url("'+fontSrc+'");font-display:swap;font-weight:100 900;}\n';
+            }else if(fontSrc){
+                var format='woff2';
+                if(fontSrc.indexOf('.ttf')!==-1)format='truetype';
+                else if(fontSrc.indexOf('.otf')!==-1)format='opentype';
+                else if(fontSrc.indexOf('.woff')!==-1&&fontSrc.indexOf('.woff2')===-1)format='woff';
+                css+='@font-face{font-family:"'+fontName+'";src:url("'+fontSrc+'") format("'+format+'");font-display:swap;font-weight:100 900;}\n';
+            }
+        }
+        var bs='#chatDetailAlt .cda-bubble,#chatDetailAlt .cda-msg-row .cda-bubble,.chat-detail-alt .cda-bubble';
+        var ns='#chatDetailAlt .cda-narr-line,.chat-detail-alt .cda-narr-line';
+        var ts='#chatDetailAlt .cda-tr-s1-inner,#chatDetailAlt .cda-tr-s2-front,#chatDetailAlt .cda-tr-s2-back,#chatDetailAlt .cda-tr-s4-main,#chatDetailAlt .cda-tr-s4-peel,#chatDetailAlt .cda-tr-s5-inner,#chatDetailAlt .cda-tr-s7-text,#chatDetailAlt .cda-tr-s8-inner,#chatDetailAlt .cda-tr-s3-ghost,#chatDetailAlt .cda-tr-s9-ref,#chatDetailAlt .cda-tr-s10-stamp';
+        var nos='#chatDetailAlt .cda-dc-notif-text,#chatDetailAlt .cda-notif-a-text,#chatDetailAlt .cda-notif-b-text,#chatDetailAlt .cda-notif-c-text,#chatDetailAlt .cda-notif-d-text,#chatDetailAlt .cda-notif-e-text';
+        css+=bs+'{font-size:'+size+'px!important;line-height:1.55!important;}\n';
+        css+=ns+'{font-size:'+Math.max(11,Math.round(size*0.85))+'px!important;}\n';
+        if(fontName){
+            var fk='"'+fontName+'",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC",sans-serif';
+            css+=bs+'{font-family:'+fk+'!important;}\n';
+            css+=ns+'{font-family:'+fk+'!important;}\n';
+            css+=ts+'{font-family:'+fk+'!important;}\n';
+            css+=nos+'{font-family:'+fk+'!important;}\n';
+        }
         if(css){var s=document.createElement('style');s.id=styleId;s.textContent=css;document.head.appendChild(s);}
-    })();
+    }
 
     // 应用旁白字号
     (function(){
@@ -2993,6 +3071,44 @@ function render(entId){
             }
         },{passive:true});
     }
+
+    // 加载自定义CSS（优先IndexedDB，fallback localStorage）
+    (function(){
+        var styleNode=document.getElementById('ca-custom-css-node');
+        if(!styleNode){
+            styleNode=document.createElement('style');
+            styleNode.id='ca-custom-css-node';
+            document.head.appendChild(styleNode);
+        }
+        // 先尝试IndexedDB
+        if(typeof ChatDB!=='undefined'&&ChatDB.open){
+            ChatDB.open(function(d){
+                if(!d){
+                    // fallback localStorage
+                    var lsVal=localStorage.getItem('ca-custom-css')||'';
+                    styleNode.textContent=lsVal;
+                    return;
+                }
+                var tx=d.transaction('avatars','readonly');
+                var req=tx.objectStore('avatars').get('custom_css');
+                req.onsuccess=function(){
+                    var val=(req.result&&req.result.data)?req.result.data:'';
+                    if(val){
+                        styleNode.textContent=val;
+                    }else{
+                        // IndexedDB没有，尝试localStorage（兼容旧数据）
+                        var lsVal=localStorage.getItem('ca-custom-css')||'';
+                        styleNode.textContent=lsVal;
+                    }
+                };
+                req.onerror=function(){
+                    styleNode.textContent=localStorage.getItem('ca-custom-css')||'';
+                };
+            });
+        }else{
+            styleNode.textContent=localStorage.getItem('ca-custom-css')||'';
+        }
+    })();
 
     // 首次进入时请求通知权限
     requestNotifPermission();
@@ -3282,7 +3398,7 @@ function render(entId){
                     }
                     break;
                 case 'inputbar':
-                    var _barStyles=['default','a','b','c','d','e'];
+                    var _barStyles=['default','a','b','c','d','e','f'];
                     var _curBar=localStorage.getItem('ca-inputbar-style')||'default';
                     var _nextIdx=(_barStyles.indexOf(_curBar)+1)%_barStyles.length;
                     var _nextBar=_barStyles[_nextIdx];
@@ -4308,9 +4424,39 @@ function closeDetailAlt(){
 // 监听设置变更，实时刷新气泡
 window.addEventListener('cda-settings-changed',function(){
     if(currentEntId){
+        // 先重新注入字体样式，再渲染气泡
+        (function(){
+            var styleId='cda-bubble-font-style';
+            var existing=document.getElementById(styleId);
+            if(existing)existing.parentNode.removeChild(existing);
+            var cfg;try{cfg=JSON.parse(localStorage.getItem('ca-bubble-font')||'{}');}catch(e){cfg={};}
+            var size=cfg.size||13;
+            var fontName=(cfg.name||'').trim();
+            var fontUrl=(cfg.url||'').trim();
+            var css='';
+            if(fontUrl&&fontName){css+='@font-face{font-family:"'+fontName+'";src:url("'+fontUrl+'");font-display:swap;}\n';}
+            var bs='#chatDetailAlt .cda-bubble,#chatDetailAlt .cda-msg-row .cda-bubble,.chat-detail-alt .cda-bubble';
+            var ns='#chatDetailAlt .cda-narr-line,.chat-detail-alt .cda-narr-line';
+            var ts='#chatDetailAlt .cda-tr-s1-inner,#chatDetailAlt .cda-tr-s2-front,#chatDetailAlt .cda-tr-s2-back,#chatDetailAlt .cda-tr-s4-main,#chatDetailAlt .cda-tr-s4-peel,#chatDetailAlt .cda-tr-s5-inner,#chatDetailAlt .cda-tr-s7-text,#chatDetailAlt .cda-tr-s8-inner,#chatDetailAlt .cda-tr-s3-ghost,#chatDetailAlt .cda-tr-s9-ref,#chatDetailAlt .cda-tr-s10-stamp';
+            var nos='#chatDetailAlt .cda-dc-notif-text,#chatDetailAlt .cda-notif-a-text,#chatDetailAlt .cda-notif-b-text,#chatDetailAlt .cda-notif-c-text,#chatDetailAlt .cda-notif-d-text,#chatDetailAlt .cda-notif-e-text';
+            css+=bs+'{font-size:'+size+'px!important;line-height:1.55!important;}\n';
+            css+=ns+'{font-size:'+Math.max(11,Math.round(size*0.85))+'px!important;}\n';
+            if(fontName){
+                var fk='"'+fontName+'",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC",sans-serif';
+                css+=bs+'{font-family:'+fk+'!important;}\n';
+                css+=ns+'{font-family:'+fk+'!important;}\n';
+                css+=ts+'{font-family:'+fk+'!important;}\n';
+                css+=nos+'{font-family:'+fk+'!important;}\n';
+            }
+            if(css){var s=document.createElement('style');s.id=styleId;s.textContent=css;document.head.appendChild(s);}
+        })();
         renderMessagesNoAnim();
     }
 });
+
+// 暴露给主题重建底栏用
+window._cdaAddUserMsg=addUserMsg;
+window._cdaTriggerAI=triggerAI;
 
 window.openChatDetailAlt=function(entId){
     build();

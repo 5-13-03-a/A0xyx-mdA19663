@@ -198,6 +198,7 @@ function renderSettings(entId){
                 '<div style="font-size:8px;color:rgba(26,26,31,0.25);margin-bottom:8px;line-height:1.5;">输入字体名称，或粘贴图床字体 URL（.woff2/.ttf/.otf）</div>'+
                 '<input type="text" id="csFontName" placeholder="例: Noto Serif SC, LXGW WenKai..." value="'+(function(){try{return JSON.parse(localStorage.getItem('ca-bubble-font')||'{}').name||'';}catch(e){return '';}})()+'" style="width:100%;border:none;border-bottom:0.5px solid rgba(26,26,31,0.1);background:transparent;font-size:12px;padding:6px 0;outline:none;color:#1a1a1f;margin-bottom:12px;">'+
                 '<input type="text" id="csFontUrl" placeholder="字体文件 URL（选填）" value="'+(function(){try{return JSON.parse(localStorage.getItem('ca-bubble-font')||'{}').url||'';}catch(e){return '';}})()+'" style="width:100%;border:none;border-bottom:0.5px solid rgba(26,26,31,0.1);background:transparent;font-size:12px;padding:6px 0;outline:none;color:#1a1a1f;margin-bottom:12px;">'+
+                '<div style="margin-bottom:12px;"><div id="csFontFileBtn" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border-radius:12px;border:1px dashed rgba(26,26,31,0.15);cursor:pointer;transition:all 0.2s;"><svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:rgba(26,26,31,0.4);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span style="font-size:11px;color:rgba(26,26,31,0.5);font-weight:600;">上传本地字体文件</span></div><input type="file" id="csFontFileInput" accept=".ttf,.otf,.woff,.woff2" style="display:none;"><div id="csFontFileStatus" style="font-size:9px;color:rgba(26,26,31,0.3);margin-top:6px;display:none;"></div></div>'+
                 '<div class="cs-btns"><div class="cs-btn ghost" id="csFontReset" style="background:transparent;border:1px solid rgba(26,26,31,0.15);color:#1a1a1f;">Reset</div><div class="cs-btn dark" id="csFontApply" style="background:#1a1a1f;color:#fff;">Apply</div></div>'+
                 '</div></div>'+
             '</div>'+
@@ -1057,17 +1058,141 @@ function bindSettingsEvents(entId){
     }
     var fontApply=document.getElementById('csFontApply');
     var fontReset=document.getElementById('csFontReset');
+    // 本地字体文件上传（存IndexedDB，不受localStorage 5MB限制）
+    var fontFileBtn=document.getElementById('csFontFileBtn');
+    var fontFileInput=document.getElementById('csFontFileInput');
+    var fontFileStatus=document.getElementById('csFontFileStatus');
+    if(fontFileBtn&&fontFileInput){
+        fontFileBtn.addEventListener('click',function(){fontFileInput.click();});
+        fontFileInput.addEventListener('change',function(ev){
+            var file=ev.target.files[0];
+            if(!file)return;
+            var fileSize=(file.size/1024/1024).toFixed(2);
+            if(file.size>20*1024*1024){
+                if(fontFileStatus){fontFileStatus.style.display='block';fontFileStatus.style.color='#c0392b';fontFileStatus.textContent='文件太大（'+fileSize+'MB），建议小于 20MB';}
+                return;
+            }
+            if(fontFileStatus){fontFileStatus.style.display='block';fontFileStatus.style.color='rgba(26,26,31,0.4)';fontFileStatus.textContent='读取中... ('+fileSize+'MB)';}
+            fontFileBtn.style.borderColor='rgba(26,26,31,0.3)';
+            fontFileBtn.querySelector('span').textContent='加载中...';
+            var reader=new FileReader();
+            reader.onload=function(e){
+                var dataUrl=e.target.result;
+                var autoName='CustomFont_'+file.name.replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g,'_');
+                if(window.FontFace){
+                    var testF=new FontFace(autoName,'url('+dataUrl+')');
+                    testF.load().then(function(loaded){
+                        document.fonts.add(loaded);
+                        // 存base64到IndexedDB（avatars表，key=font_custom）
+                        if(typeof ChatDB!=='undefined'&&ChatDB.open){
+                            ChatDB.open(function(d){
+                                if(!d){_fontSaveFallback(autoName,dataUrl,file,fileSize);return;}
+                                var tx=d.transaction('avatars','readwrite');
+                                tx.objectStore('avatars').put({id:'font_custom',data:dataUrl});
+                                tx.oncomplete=function(){
+                                    // localStorage只存名字和标记，不存base64
+                                    var size=parseInt(document.getElementById('csFontSize').value,10)||13;
+                                    localStorage.setItem('ca-bubble-font',JSON.stringify({size:size,name:autoName,url:'',_hasIDB:true}));
+                                    document.getElementById('csFontName').value=autoName;
+                                    document.getElementById('csFontUrl').value='(本地文件) '+file.name;
+                                    if(fontFileStatus){fontFileStatus.style.color='#27ae60';fontFileStatus.textContent='✓ 字体已存入数据库：'+autoName+' ('+fileSize+'MB)';}
+                                    fontFileBtn.style.borderColor='#27ae60';
+                                    fontFileBtn.querySelector('span').textContent='✓ '+file.name;
+                                    applyBubbleFont();
+                                    window.dispatchEvent(new CustomEvent('cda-settings-changed'));
+                                };
+                                tx.onerror=function(){_fontSaveFallback(autoName,dataUrl,file,fileSize);};
+                            });
+                        }else{
+                            _fontSaveFallback(autoName,dataUrl,file,fileSize);
+                        }
+                    }).catch(function(err){
+                        if(fontFileStatus){fontFileStatus.style.display='block';fontFileStatus.style.color='#c0392b';fontFileStatus.textContent='字体文件无效：'+err.message;}
+                        fontFileBtn.style.borderColor='rgba(26,26,31,0.15)';
+                        fontFileBtn.querySelector('span').textContent='上传本地字体文件';
+                    });
+                }else{
+                    _fontSaveFallback(autoName,dataUrl,file,fileSize);
+                }
+            };
+            reader.onerror=function(){
+                if(fontFileStatus){fontFileStatus.style.display='block';fontFileStatus.style.color='#c0392b';fontFileStatus.textContent='读取文件失败';}
+                fontFileBtn.style.borderColor='rgba(26,26,31,0.15)';
+                fontFileBtn.querySelector('span').textContent='上传本地字体文件';
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+    function _fontSaveFallback(autoName,dataUrl,file,fileSize){
+        // IndexedDB不可用时尝试localStorage（小字体可能放得下）
+        try{
+            var size=parseInt(document.getElementById('csFontSize').value,10)||13;
+            localStorage.setItem('ca-bubble-font',JSON.stringify({size:size,name:autoName,url:'',_dataUrl:dataUrl}));
+            document.getElementById('csFontName').value=autoName;
+            if(document.getElementById('csFontUrl'))document.getElementById('csFontUrl').value='(本地文件) '+file.name;
+            var ffs=document.getElementById('csFontFileStatus');
+            if(ffs){ffs.style.color='#27ae60';ffs.textContent='✓ 字体加载成功：'+autoName+' ('+fileSize+'MB)';}
+            var ffb=document.getElementById('csFontFileBtn');
+            if(ffb){ffb.style.borderColor='#27ae60';ffb.querySelector('span').textContent='✓ '+file.name;}
+            applyBubbleFont();
+            window.dispatchEvent(new CustomEvent('cda-settings-changed'));
+        }catch(e){
+            var ffs2=document.getElementById('csFontFileStatus');
+            if(ffs2){ffs2.style.display='block';ffs2.style.color='#c0392b';ffs2.textContent='存储失败，字体文件太大';}
+        }
+    }
+
     if(fontApply){
         fontApply.addEventListener('click',function(){
             var size=parseInt(document.getElementById('csFontSize').value,10)||13;
             var name=(document.getElementById('csFontName').value||'').trim();
             var url=(document.getElementById('csFontUrl').value||'').trim();
-            localStorage.setItem('ca-bubble-font',JSON.stringify({size:size,name:name,url:url}));
-            applyBubbleFont();
-            fontApply.textContent='✓ Applied';
-            setTimeout(function(){fontApply.textContent='Apply';},1000);
+            // 如果填了URL但没填名字，自动生成一个名字
+            if(url&&!name){
+                name='CustomFont_'+Date.now();
+                document.getElementById('csFontName').value=name;
+            }
+            fontApply.textContent='加载中...';
+            fontApply.style.opacity='0.5';
+            // 如果有URL，先尝试直接加载，失败则走代理转base64
+            if(url){
+                _loadFontWithFallback(name,url,function(success,finalName){
+                    if(success){
+                        // 用最终确定的name保存
+                        var saveName=finalName||name;
+                        document.getElementById('csFontName').value=saveName;
+                        localStorage.setItem('ca-bubble-font',JSON.stringify({size:size,name:saveName,url:url}));
+                    }else{
+                        localStorage.setItem('ca-bubble-font',JSON.stringify({size:size,name:name,url:url}));
+                    }
+                    applyBubbleFont();
+                    window.dispatchEvent(new CustomEvent('cda-settings-changed'));
+                    fontApply.style.opacity='1';
+                    fontApply.textContent='✓ Applied';
+                    setTimeout(function(){fontApply.textContent='Apply';},1000);
+                });
+            }else{
+                localStorage.setItem('ca-bubble-font',JSON.stringify({size:size,name:name,url:url}));
+                applyBubbleFont();
+                window.dispatchEvent(new CustomEvent('cda-settings-changed'));
+                fontApply.style.opacity='1';
+                fontApply.textContent='✓ Applied';
+                setTimeout(function(){fontApply.textContent='Apply';},1000);
+            }
         });
     }
+    if(fontReset){
+        fontReset.addEventListener('click',function(){
+            localStorage.removeItem('ca-bubble-font');
+            document.getElementById('csFontSize').value=13;
+            if(fontSizeVal)fontSizeVal.textContent='13 px';
+            document.getElementById('csFontName').value='';
+            document.getElementById('csFontUrl').value='';
+            applyBubbleFont();
+            window.dispatchEvent(new CustomEvent('cda-settings-changed'));
+        });
+    }
+
     if(fontReset){
         fontReset.addEventListener('click',function(){
             localStorage.removeItem('ca-bubble-font');
@@ -1079,40 +1204,189 @@ function bindSettingsEvents(entId){
         });
     }
 
+    // 字体加载：先直接试，跨域失败则用no-cors fetch转base64
+    function _loadFontWithFallback(name,url,callback){
+        if(!window.FontFace){callback(false);return;}
+        // 先直接试
+        var f1=new FontFace(name,'url('+url+')');
+        f1.load().then(function(loaded){
+            document.fonts.add(loaded);
+            console.log('[Font] ✅ 直接加载成功');
+            callback(true,name);
+        }).catch(function(){
+            console.log('[Font] 直接加载失败，尝试转base64...');
+            // 用 no-cors 拿不到数据，改用同源代理或 XMLHttpRequest
+            // 最可靠的方式：用 fetch + blob 转 data URL
+            fetch(url).then(function(r){
+                if(!r.ok)throw new Error('HTTP '+r.status);
+                return r.blob();
+            }).then(function(blob){
+                return new Promise(function(resolve){
+                    var reader=new FileReader();
+                    reader.onload=function(){resolve(reader.result);};
+                    reader.readAsDataURL(blob);
+                });
+            }).then(function(dataUrl){
+                // 存base64到IndexedDB（localStorage放不下大字体）
+                if(typeof ChatDB!=='undefined'&&ChatDB.open){
+                    ChatDB.open(function(db){
+                        if(!db){_tryFontFromDataUrl(name,dataUrl,callback);return;}
+                        var tx=db.transaction('avatars','readwrite');
+                        tx.objectStore('avatars').put({id:'font_custom',data:dataUrl});
+                        tx.oncomplete=function(){
+                            console.log('[Font] ✅ 字体已存入IndexedDB');
+                            _tryFontFromDataUrl(name,dataUrl,callback);
+                        };
+                        tx.onerror=function(){_tryFontFromDataUrl(name,dataUrl,callback);};
+                    });
+                }else{
+                    _tryFontFromDataUrl(name,dataUrl,callback);
+                }
+            }).catch(function(e){
+                console.error('[Font] ❌ 全部加载方式失败:', e.message);
+                console.log('[Font] 💡 建议：用本地文件上传代替URL');
+                callback(false);
+            });
+        });
+    }
+
+    function _tryFontFromDataUrl(name,dataUrl,callback){
+        var f2=new FontFace(name,'url('+dataUrl+')');
+        f2.load().then(function(loaded){
+            document.fonts.add(loaded);
+            console.log('[Font] ✅ base64字体加载成功');
+            // 把dataUrl存到localStorage的配置里（替换原url）
+            var cfg;try{cfg=JSON.parse(localStorage.getItem('ca-bubble-font')||'{}');}catch(e){cfg={};}
+            cfg._dataUrl=dataUrl;
+            localStorage.setItem('ca-bubble-font',JSON.stringify(cfg));
+            callback(true,name);
+        }).catch(function(e){
+            console.error('[Font] ❌ base64也加载失败:', e.message);
+            callback(false);
+        });
+    }
+
     function applyBubbleFont(){
         var styleId='cda-bubble-font-style';
         var existing=document.getElementById(styleId);
         if(existing)existing.parentNode.removeChild(existing);
-        var cfg;
-        try{cfg=JSON.parse(localStorage.getItem('ca-bubble-font')||'{}');}catch(e){cfg={};}
-        var css='';
-        // 加载自定义字体
-        if(cfg.url&&cfg.name){
-            css+='@font-face{font-family:"'+cfg.name+'";src:url("'+cfg.url+'");font-display:swap;}\n';
-        }
-        // 应用字体大小
+        var oldLink=document.getElementById('cda-bubble-font-link');
+        if(oldLink)oldLink.parentNode.removeChild(oldLink);
+        var cfg;try{cfg=JSON.parse(localStorage.getItem('ca-bubble-font')||'{}');}catch(e){cfg={};}
         var size=cfg.size||13;
-        css+='.cda-bubble{font-size:'+size+'px!important;}\n';
-        // 应用字体名称
-        if(cfg.name){
-            css+='.cda-bubble{font-family:"'+cfg.name+'",-apple-system,BlinkMacSystemFont,sans-serif!important;}\n';
+        var fontName=(cfg.name||'').trim();
+        var fontUrl=(cfg.url||'').trim();
+        var fontDataUrl=(cfg._dataUrl||'').trim();
+        var hasIDB=!!cfg._hasIDB;
+        // 先注入字号CSS（不依赖字体加载）
+        _injectFontCSS(size,fontName,'');
+        // 如果有IndexedDB存的字体，异步加载
+        if(hasIDB&&fontName&&typeof ChatDB!=='undefined'&&ChatDB.open){
+            ChatDB.open(function(d){
+                if(!d){return;}
+                var tx=d.transaction('avatars','readonly');
+                var req=tx.objectStore('avatars').get('font_custom');
+                req.onsuccess=function(){
+                    var idbData=(req.result&&req.result.data)?req.result.data:'';
+                    if(idbData){
+                        _loadFontData(fontName,idbData);
+                        _injectFontCSS(size,fontName,idbData);
+                    }
+                };
+            });
+            return;
         }
-        if(css){
-            var s=document.createElement('style');
-            s.id=styleId;
-            s.textContent=css;
-            document.head.appendChild(s);
+        // localStorage里的base64或URL
+        if(fontUrl&&!fontName){
+            fontName='CustomFont_'+Math.random().toString(36).substr(2,6);
+            cfg.name=fontName;
+            localStorage.setItem('ca-bubble-font',JSON.stringify(cfg));
         }
+        if(fontName&&(fontUrl||fontDataUrl)){
+            var actualUrl=fontDataUrl||fontUrl;
+            var isCssUrl=fontUrl.match(/\.css(\?|$)/i)||fontUrl.indexOf('fonts.googleapis.com')!==-1;
+            var isDataUrl=actualUrl.indexOf('data:')===0;
+            if(isCssUrl&&!isDataUrl){
+                var link=document.createElement('link');
+                link.id='cda-bubble-font-link';
+                link.rel='stylesheet';
+                link.href=fontUrl;
+                document.head.appendChild(link);
+            }else{
+                _loadFontData(fontName,actualUrl);
+            }
+            _injectFontCSS(size,fontName,isDataUrl?actualUrl:(isCssUrl?'':actualUrl));
+        }
+    }
+    function _loadFontData(name,dataUrl){
+        if(window.FontFace&&!document.fonts.check('16px "'+name+'"')){
+            try{
+                var ff=new FontFace(name,'url('+dataUrl+')');
+                ff.load().then(function(loaded){document.fonts.add(loaded);}).catch(function(){});
+            }catch(e){}
+        }
+    }
+    function _injectFontCSS(size,fontName,fontSrc){
+        var styleId='cda-bubble-font-style';
+        var existing=document.getElementById(styleId);
+        if(existing)existing.parentNode.removeChild(existing);
+        var css='';
+        if(fontSrc&&fontName){
+            var isDataUrl=fontSrc.indexOf('data:')===0;
+            if(isDataUrl){
+                css+='@font-face{font-family:"'+fontName+'";src:url("'+fontSrc+'");font-display:swap;font-weight:100 900;font-style:normal;}\n';
+            }else if(fontSrc){
+                var format='woff2';
+                if(fontSrc.indexOf('.ttf')!==-1)format='truetype';
+                else if(fontSrc.indexOf('.otf')!==-1)format='opentype';
+                else if(fontSrc.indexOf('.woff')!==-1&&fontSrc.indexOf('.woff2')===-1)format='woff';
+                css+='@font-face{font-family:"'+fontName+'";src:url("'+fontSrc+'") format("'+format+'");font-display:swap;font-weight:100 900;font-style:normal;}\n';
+            }
+        }
+        var bs='#chatDetailAlt .cda-bubble,#chatDetailAlt .cda-msg-row .cda-bubble,.chat-detail-alt .cda-bubble';
+        var ns='#chatDetailAlt .cda-narr-line,.chat-detail-alt .cda-narr-line';
+        var ts='#chatDetailAlt .cda-tr-s1-inner,#chatDetailAlt .cda-tr-s2-front,#chatDetailAlt .cda-tr-s2-back,#chatDetailAlt .cda-tr-s4-main,#chatDetailAlt .cda-tr-s4-peel,#chatDetailAlt .cda-tr-s5-inner,#chatDetailAlt .cda-tr-s7-text,#chatDetailAlt .cda-tr-s8-inner,#chatDetailAlt .cda-tr-s3-ghost,#chatDetailAlt .cda-tr-s9-ref,#chatDetailAlt .cda-tr-s10-stamp';
+        var nos='#chatDetailAlt .cda-dc-notif-text,#chatDetailAlt .cda-notif-a-text,#chatDetailAlt .cda-notif-b-text,#chatDetailAlt .cda-notif-c-text,#chatDetailAlt .cda-notif-d-text,#chatDetailAlt .cda-notif-e-text';
+        css+=bs+'{font-size:'+size+'px!important;line-height:1.55!important;}\n';
+        css+=ns+'{font-size:'+Math.max(11,Math.round(size*0.85))+'px!important;}\n';
+        if(fontName){
+            var fk='"'+fontName+'",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC",sans-serif';
+            css+=bs+'{font-family:'+fk+'!important;}\n';
+            css+=ns+'{font-family:'+fk+'!important;}\n';
+            css+=ts+'{font-family:'+fk+'!important;}\n';
+            css+=nos+'{font-family:'+fk+'!important;}\n';
+        }
+        if(css){var s=document.createElement('style');s.id=styleId;s.textContent=css;document.head.appendChild(s);}
     }
     applyBubbleFont();
 
-    // CSS
+    // 加载自定义CSS到textarea（从IndexedDB）
+    (function(){
+        var ta=document.getElementById('csCssInput');
+        if(!ta)return;
+        if(typeof ChatDB!=='undefined'&&ChatDB.open){
+            ChatDB.open(function(d){
+                if(!d){ta.value=localStorage.getItem('ca-custom-css')||'';return;}
+                var tx=d.transaction('avatars','readonly');
+                var req=tx.objectStore('avatars').get('custom_css');
+                req.onsuccess=function(){
+                    var val=(req.result&&req.result.data)?req.result.data:'';
+                    ta.value=val||(localStorage.getItem('ca-custom-css')||'');
+                };
+                req.onerror=function(){ta.value=localStorage.getItem('ca-custom-css')||'';};
+            });
+        }else{
+            ta.value=localStorage.getItem('ca-custom-css')||'';
+        }
+    })();
+
+    // CSS（存IndexedDB，不受localStorage 5MB限制）
     var cssSave=document.getElementById('csCssSave');
     var cssReset=document.getElementById('csCssReset');
     if(cssSave){
         cssSave.addEventListener('click',function(){
             var val=document.getElementById('csCssInput').value;
-            localStorage.setItem('ca-custom-css',val);
+            // 应用到页面
             var styleNode=document.getElementById('ca-custom-css-node');
             if(!styleNode){
                 styleNode=document.createElement('style');
@@ -1120,6 +1394,20 @@ function bindSettingsEvents(entId){
                 document.head.appendChild(styleNode);
             }
             styleNode.textContent=val;
+            // 存到IndexedDB
+            if(typeof ChatDB!=='undefined'&&ChatDB.open){
+                ChatDB.open(function(d){
+                    if(!d){
+                        // fallback: 尝试localStorage
+                        try{localStorage.setItem('ca-custom-css',val);}catch(e){}
+                        return;
+                    }
+                    var tx=d.transaction('avatars','readwrite');
+                    tx.objectStore('avatars').put({id:'custom_css',data:val});
+                });
+            }else{
+                try{localStorage.setItem('ca-custom-css',val);}catch(e){}
+            }
             cssSave.textContent='✓ Applied';
             setTimeout(function(){cssSave.textContent='Apply';},1200);
         });
@@ -1127,7 +1415,6 @@ function bindSettingsEvents(entId){
     if(cssReset){
         cssReset.addEventListener('click',function(){
             document.getElementById('csCssInput').value='';
-            localStorage.removeItem('ca-custom-css');
             var styleNode=document.getElementById('ca-custom-css-node');
             if(!styleNode){
                 styleNode=document.createElement('style');
@@ -1135,6 +1422,15 @@ function bindSettingsEvents(entId){
                 document.head.appendChild(styleNode);
             }
             styleNode.textContent='';
+            // 清除存储
+            try{localStorage.removeItem('ca-custom-css');}catch(e){}
+            if(typeof ChatDB!=='undefined'&&ChatDB.open){
+                ChatDB.open(function(d){
+                    if(!d)return;
+                    var tx=d.transaction('avatars','readwrite');
+                    tx.objectStore('avatars').delete('custom_css');
+                });
+            }
         });
     }
 
@@ -1191,7 +1487,7 @@ function bindSettingsEvents(entId){
             card.style.cssText='position:relative;width:100%;max-width:320px;background:#fff;border-radius:20px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,0.25);';
             card.innerHTML=
                 '<div style="font-size:9px;font-weight:800;letter-spacing:2px;color:rgba(26,26,31,0.3);text-transform:uppercase;margin-bottom:12px;">Edit Memory</div>'+
-                '<textarea id="csMemEditTA" style="width:100%;min-height:80px;max-height:200px;border:1px solid rgba(26,26,31,0.1);border-radius:12px;padding:12px;font-size:13px;line-height:1.5;color:#1a1a1f;outline:none;resize:none;font-family:inherit;">'+escapeHtml(currentVal)+'</textarea>'+
+                '<textarea id="csCssInput" style="width:100%;height:70px;background:rgba(26,26,31,0.02);border:0.5px solid rgba(26,26,31,0.06);border-radius:10px;padding:10px;font-family:monospace;font-size:10px;color:#1a1a1f;outline:none;resize:none;line-height:1.5;" placeholder="/* custom styles */"></textarea>'+
                 '<div style="display:flex;gap:10px;margin-top:14px;">'+
                     '<button id="csMemEditCancel" style="flex:1;padding:12px;border-radius:50px;border:1px solid rgba(26,26,31,0.12);background:transparent;font-size:9px;font-weight:700;cursor:pointer;color:#1a1a1f;">取消</button>'+
                     '<button id="csMemEditSave" style="flex:1;padding:12px;border-radius:50px;border:none;background:#1a1a1f;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">保存</button>'+
