@@ -202,6 +202,18 @@ function renderSettings(entId){
                 '<div class="cs-btns"><div class="cs-btn ghost" id="csFontReset" style="background:transparent;border:1px solid rgba(26,26,31,0.15);color:#1a1a1f;">Reset</div><div class="cs-btn dark" id="csFontApply" style="background:#1a1a1f;color:#fff;">Apply</div></div>'+
                 '</div></div>'+
             '</div>'+
+            '<div class="cs-acc"><div class="cs-acc-hd"><div class="cs-acc-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="cs-acc-info"><div class="cs-acc-name">标签 / 时间戳</div><div class="cs-acc-desc">Bubble labels & timestamps</div></div><svg class="cs-acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>'+
+                '<div class="cs-acc-body"><div class="cs-acc-inner" id="csBubbleLabelsInner">'+
+                '<div style="font-size:9px;color:rgba(26,26,31,0.25);margin-bottom:12px;line-height:1.5;">在气泡旁显示自定义文字或时间戳。支持多个标签，互不干扰。样式可通过 .cda-bubble-lbl 类名用CSS覆盖。</div>'+
+                '<div id="csLabelPreview" style="background:rgba(26,26,31,0.02);border:0.5px solid rgba(26,26,31,0.06);border-radius:14px;padding:14px 12px;margin-bottom:14px;display:flex;flex-direction:column;gap:6px;">'+
+                    '<div style="font-size:7px;color:rgba(26,26,31,0.2);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Preview</div>'+
+                    '<div style="display:flex;align-items:flex-end;gap:6px;"><div style="width:24px;height:24px;border-radius:50%;background:#1a1a1f;display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;flex-shrink:0;">K</div><div class="cs-lbl-prev-wrap-recv" style="position:relative;"><div style="padding:7px 12px;font-size:11px;background:#fff;color:#1a1a1f;border-radius:12px 12px 12px 3px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">想你了</div></div></div>'+
+                    '<div style="display:flex;align-items:flex-end;gap:6px;flex-direction:row-reverse;"><div class="cs-lbl-prev-wrap-sent" style="position:relative;"><div style="padding:7px 12px;font-size:11px;background:#1a1a1f;color:#fff;border-radius:12px 12px 3px 12px;">我也是</div></div></div>'+
+                '</div>'+
+                '<div id="csBubbleLabelList"></div>'+
+                '<div id="csBubbleLabelAdd" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;border-radius:12px;border:1px dashed rgba(26,26,31,0.15);cursor:pointer;font-size:10px;font-weight:700;color:rgba(26,26,31,0.4);margin-top:8px;">+ 添加标签</div>'+
+                '</div></div>'+
+            '</div>'+
             '<div class="cs-acc"><div class="cs-acc-hd"><div class="cs-acc-icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div><div class="cs-acc-info"><div class="cs-acc-name">自定义样式</div><div class="cs-acc-desc">Inject CSS overrides</div></div><svg class="cs-acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>'+
                 '<div class="cs-acc-body"><div class="cs-acc-inner"><textarea id="csCssInput" style="width:100%;height:70px;background:rgba(26,26,31,0.02);border:0.5px solid rgba(26,26,31,0.06);border-radius:10px;padding:10px;font-family:monospace;font-size:10px;color:#1a1a1f;outline:none;resize:none;line-height:1.5;" placeholder="/* custom styles */">'+(localStorage.getItem('ca-custom-css')||'')+'</textarea><div class="cs-btns"><div class="cs-btn ghost" id="csCssReset">Reset</div><div class="cs-btn dark" id="csCssSave">Apply</div></div></div></div>'+
             '</div>'+
@@ -2003,6 +2015,463 @@ function bindSettingsEvents(entId){
         var initTgn;try{initTgn=localStorage.getItem('ca-tgn-style')||'off';}catch(e){initTgn='off';}
         renderTgnPreview(initTgn);
     }
+
+    // 标签 / 时间戳系统
+    (function(){
+        var storageKey='ca-bubble-labels-'+entId;
+        function loadLabels(){try{return JSON.parse(localStorage.getItem(storageKey)||'[]');}catch(e){return[];}}
+        function saveLabels(arr){localStorage.setItem(storageKey,JSON.stringify(arr));window.dispatchEvent(new CustomEvent('cda-settings-changed'));updateLabelPreview(arr);}
+
+        function updateLabelPreview(labels){
+            var recvWrap=document.querySelector('.cs-lbl-prev-wrap-recv');
+            var sentWrap=document.querySelector('.cs-lbl-prev-wrap-sent');
+            if(!recvWrap||!sentWrap)return;
+            // 清除旧预览标签
+            recvWrap.querySelectorAll('.cs-lbl-prev-tag').forEach(function(el){el.remove();});
+            sentWrap.querySelectorAll('.cs-lbl-prev-tag').forEach(function(el){el.remove();});
+            labels.forEach(function(lb){
+                if(!lb.on)return;
+                var text=lb.type==='time'?'14:30':(lb.text||'label');
+                var size=lb.size||9;
+                var color=lb.color||'rgba(26,26,31,0.3)';
+                var offX=lb.offX||0;
+                var offY=lb.offY||0;
+                var pos=lb.pos||'below';
+                var target=lb.target||'both';
+                function makeTag(wrap,side){
+                    var tag=document.createElement('span');
+                    tag.className='cs-lbl-prev-tag';
+                    tag.textContent=text;
+                    var baseStyle='font-size:'+size+'px;color:'+color+';white-space:nowrap;pointer-events:none;line-height:1.2;display:block;position:absolute;';
+                    if(pos==='below'){
+                        tag.style.cssText=baseStyle+'bottom:'+(-size-4-offY)+'px;'+(side==='sent'?'right':'left')+':'+(2+offX)+'px;';
+                    }else if(pos==='above'){
+                        tag.style.cssText=baseStyle+'top:'+(-size-4-offY)+'px;'+(side==='sent'?'right':'left')+':'+(2+offX)+'px;';
+                    }else if(pos==='right'){
+                        tag.style.cssText=baseStyle+'right:'+(-40-offX)+'px;bottom:'+(2+offY)+'px;';
+                    }else if(pos==='left'){
+                        tag.style.cssText=baseStyle+'left:'+(-40+offX)+'px;bottom:'+(2+offY)+'px;';
+                    }else if(pos==='inline-right'){
+                        tag.style.cssText=baseStyle+'bottom:'+(2+offY)+'px;right:'+(6-offX)+'px;';
+                    }else if(pos==='inline-left'){
+                        tag.style.cssText=baseStyle+'bottom:'+(2+offY)+'px;left:'+(6+offX)+'px;';
+                    }
+                    wrap.appendChild(tag);
+                }
+                if(target==='both'||target==='recv')makeTag(recvWrap,'recv');
+                if(target==='both'||target==='sent')makeTag(sentWrap,'sent');
+            });
+        }
+
+                function updateLabelPreview(labels){
+            var recvWrap=document.querySelector('.cs-lbl-prev-wrap-recv');
+            var sentWrap=document.querySelector('.cs-lbl-prev-wrap-sent');
+            if(!recvWrap||!sentWrap)return;
+            recvWrap.querySelectorAll('.cs-lbl-prev-tag').forEach(function(el){el.remove();});
+            sentWrap.querySelectorAll('.cs-lbl-prev-tag').forEach(function(el){el.remove();});
+            // 重置wrap样式
+            recvWrap.style.cssText='position:relative;display:inline-block;max-width:70%;';
+            sentWrap.style.cssText='position:relative;display:inline-block;max-width:70%;';
+            labels.forEach(function(lb){
+                if(!lb.on)return;
+                var text=lb.type==='time'?'14:30':(lb.text||'label');
+                var size=lb.size||9;
+                var color=lb.color||'rgba(26,26,31,0.3)';
+                var offX=lb.offX||0;
+                var offY=lb.offY||0;
+                var pos=lb.pos||'below';
+                var target=lb.target||'both';
+                var baseStyle='font-size:'+size+'px;color:'+color+';white-space:nowrap;pointer-events:none;line-height:1.2;';
+                function makeTag(wrap,side){
+                    var tag=document.createElement('span');
+                    tag.className='cs-lbl-prev-tag';
+                    tag.textContent=text;
+                    if(pos==='below'){
+                        tag.style.cssText=baseStyle+'display:block;margin-top:'+offY+'px;'+(offX!==0?'margin-left:'+offX+'px;':'')+'text-align:'+(side==='sent'?'right':'left')+';';
+                        wrap.appendChild(tag);
+                    }else if(pos==='above'){
+                        tag.style.cssText=baseStyle+'display:block;margin-bottom:'+offY+'px;'+(offX!==0?'margin-left:'+offX+'px;':'')+'text-align:'+(side==='sent'?'right':'left')+';';
+                        wrap.insertBefore(tag,wrap.firstChild);
+                    }else if(pos==='right'){
+                        wrap.style.display='flex';wrap.style.alignItems='flex-end';wrap.style.gap='0px';
+                        tag.style.cssText=baseStyle+'flex-shrink:0;position:relative;bottom:'+(-offY)+'px;margin-left:'+(4+offX)+'px;';
+                        wrap.appendChild(tag);
+                    }else if(pos==='left'){
+                        wrap.style.display='flex';wrap.style.alignItems='flex-end';wrap.style.gap='0px';
+                        tag.style.cssText=baseStyle+'flex-shrink:0;position:relative;bottom:'+(-offY)+'px;margin-right:'+(4+offX)+'px;';
+                        wrap.insertBefore(tag,wrap.firstChild);
+                    }else if(pos==='inline-right'){
+                        tag.style.cssText=baseStyle+'position:absolute;bottom:'+(2+offY)+'px;right:'+(6-offX)+'px;';
+                        var bubble=wrap.querySelector('div');
+                        if(bubble)bubble.appendChild(tag);
+                    }else if(pos==='inline-left'){
+                        tag.style.cssText=baseStyle+'position:absolute;bottom:'+(2+offY)+'px;left:'+(6+offX)+'px;';
+                        var bubble2=wrap.querySelector('div');
+                        if(bubble2)bubble2.appendChild(tag);
+                    }
+                }
+                if(target==='both'||target==='recv')makeTag(recvWrap,'recv');
+                if(target==='both'||target==='sent')makeTag(sentWrap,'sent');
+            });
+        }
+
+        function renderLabelList(){
+            var list=document.getElementById('csBubbleLabelList');
+            if(!list)return;
+            var labels=loadLabels();
+            var html='';
+            labels.forEach(function(lb,i){
+                var isTime=lb.type==='time';
+                // 折叠头
+                html+='<div style="background:rgba(26,26,31,0.02);border:0.5px solid rgba(26,26,31,0.06);border-radius:12px;margin-bottom:8px;overflow:hidden;">';
+                html+='<div data-lbl-header="'+i+'" style="display:flex;align-items:center;padding:10px 12px;cursor:pointer;gap:8px;">';
+                html+='<div class="cs-toggle'+(lb.on?' on':'')+'" data-lbl-toggle="'+i+'" style="flex-shrink:0;"></div>';
+                html+='<span style="font-size:10px;font-weight:700;color:#1a1a1f;flex:1;">#'+(i+1)+' '+(isTime?'⏱ 时间戳':'✏ '+escapeHtml(lb.text||'标签'))+'</span>';
+                html+='<svg data-lbl-chevron="'+i+'" viewBox="0 0 24 24" style="width:12px;height:12px;stroke:rgba(26,26,31,0.25);fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;transition:transform 0.3s;flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>';
+                html+='<div data-lbl-del="'+i+'" style="width:20px;height:20px;border-radius:50%;background:rgba(26,26,31,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:10px;color:rgba(26,26,31,0.4);flex-shrink:0;margin-left:4px;">×</div>';
+                html+='</div>';
+                // 折叠体
+                html+='<div data-lbl-body="'+i+'" style="max-height:0;overflow:hidden;transition:max-height 0.4s cubic-bezier(0.16,1,0.3,1);">';
+                html+='<div style="padding:0 12px 12px;">';
+                // 类型
+                html+='<div style="font-size:8px;color:rgba(26,26,31,0.3);margin-bottom:6px;letter-spacing:0.5px;">TYPE</div>';
+                html+='<div class="cs-caps" style="margin-bottom:10px;"><div class="cs-cap'+(lb.type==='fixed'?' active':'')+'" data-lbl-type="fixed" data-lbl-idx="'+i+'">固定文字</div><div class="cs-cap'+(lb.type==='time'?' active':'')+'" data-lbl-type="time" data-lbl-idx="'+i+'">时间戳</div></div>';
+                // 固定文字
+                html+='<div data-lbl-fixed-wrap="'+i+'" style="'+(isTime?'display:none;':'')+'margin-bottom:10px;"><input type="text" data-lbl-text="'+i+'" value="'+escapeHtml(lb.text||'')+'" placeholder="输入文字..." style="width:100%;border:none;border-bottom:0.5px solid rgba(26,26,31,0.1);background:transparent;font-size:12px;padding:5px 0;outline:none;color:#1a1a1f;"></div>';
+                // 时间格式
+                html+='<div data-lbl-time-wrap="'+i+'" style="'+(isTime?'':'display:none;')+'margin-bottom:10px;"><div style="font-size:8px;color:rgba(26,26,31,0.3);margin-bottom:6px;letter-spacing:0.5px;">FORMAT</div><div class="cs-caps">';
+                [{v:'HH:mm',n:'14:30'},{v:'hh:mm',n:'2:30'},{v:'HH:mm:ss',n:'14:30:05'},{v:'a h:mm',n:'下午 2:30'}].forEach(function(f){
+                    html+='<div class="cs-cap'+(lb.format===f.v?' active':'')+'" data-lbl-fmt="'+f.v+'" data-lbl-idx="'+i+'">'+f.n+'</div>';
+                });
+                html+='</div></div>';
+                // 应用到
+                html+='<div style="font-size:8px;color:rgba(26,26,31,0.3);margin-bottom:6px;letter-spacing:0.5px;">TARGET</div>';
+                html+='<div class="cs-caps" style="margin-bottom:10px;">';
+                [{v:'both',n:'双方'},{v:'sent',n:'我的'},{v:'recv',n:'对方'}].forEach(function(t){
+                    html+='<div class="cs-cap'+(lb.target===t.v?' active':'')+'" data-lbl-target="'+t.v+'" data-lbl-idx="'+i+'">'+t.n+'</div>';
+                });
+                html+='</div>';
+                // 模式
+                html+='<div style="font-size:8px;color:rgba(26,26,31,0.3);margin-bottom:6px;letter-spacing:0.5px;">MODE</div>';
+                html+='<div class="cs-caps" style="margin-bottom:10px;">';
+                [{v:'last',n:'最后一条'},{v:'all',n:'全部'},{v:'first',n:'第一条'}].forEach(function(m){
+                    html+='<div class="cs-cap'+(lb.mode===m.v?' active':'')+'" data-lbl-mode="'+m.v+'" data-lbl-idx="'+i+'">'+m.n+'</div>';
+                });
+                html+='</div>';
+                // 位置
+                html+='<div style="font-size:8px;color:rgba(26,26,31,0.3);margin-bottom:6px;letter-spacing:0.5px;">POSITION</div>';
+                html+='<div class="cs-caps" style="margin-bottom:10px;">';
+                [{v:'below',n:'下方'},{v:'above',n:'上方'},{v:'right',n:'右侧'},{v:'left',n:'左侧'},{v:'inline-right',n:'内右'},{v:'inline-left',n:'内左'}].forEach(function(p){
+                    html+='<div class="cs-cap'+(lb.pos===p.v?' active':'')+'" data-lbl-pos="'+p.v+'" data-lbl-idx="'+i+'">'+p.n+'</div>';
+                });
+                html+='</div>';
+                // 字号
+                html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:8px;color:rgba(26,26,31,0.3);flex-shrink:0;width:28px;">字号</span><input type="range" data-lbl-size="'+i+'" min="6" max="14" step="1" value="'+(lb.size||9)+'" style="flex:1;accent-color:#1a1a1f;"><span data-lbl-size-val="'+i+'" style="font-size:9px;font-weight:700;color:#1a1a1f;min-width:20px;text-align:right;">'+(lb.size||9)+'</span></div>';
+                // X
+                html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:8px;color:rgba(26,26,31,0.3);flex-shrink:0;width:28px;">X</span><input type="range" data-lbl-offx="'+i+'" min="-20" max="20" step="1" value="'+(lb.offX||0)+'" style="flex:1;accent-color:#1a1a1f;"><span data-lbl-offx-val="'+i+'" style="font-size:9px;font-weight:700;color:#1a1a1f;min-width:20px;text-align:right;">'+(lb.offX||0)+'</span></div>';
+                // Y
+                html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:8px;color:rgba(26,26,31,0.3);flex-shrink:0;width:28px;">Y</span><input type="range" data-lbl-offy="'+i+'" min="-20" max="20" step="1" value="'+(lb.offY||0)+'" style="flex:1;accent-color:#1a1a1f;"><span data-lbl-offy-val="'+i+'" style="font-size:9px;font-weight:700;color:#1a1a1f;min-width:20px;text-align:right;">'+(lb.offY||0)+'</span></div>';
+                // 颜色
+                html+='<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:rgba(26,26,31,0.3);flex-shrink:0;width:28px;">色</span><input type="color" data-lbl-color="'+i+'" value="'+(lb.colorHex||'#999999')+'" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;background:transparent;padding:0;"></div>';
+                html+='</div></div>';// 关闭body+padding
+                html+='</div>';// 关闭item
+            });
+            list.innerHTML=html;
+            bindLabelEvents();
+            updateLabelPreview(labels);
+        }
+
+        function bindLabelEvents(){
+            var list=document.getElementById('csBubbleLabelList');
+            if(!list)return;
+            var labels=loadLabels();
+            // 折叠展开
+            list.querySelectorAll('[data-lbl-header]').forEach(function(hd){
+                hd.addEventListener('click',function(e){
+                    if(e.target.closest('[data-lbl-toggle]')||e.target.closest('[data-lbl-del]'))return;
+                    var idx=hd.dataset.lblHeader;
+                    var body=list.querySelector('[data-lbl-body="'+idx+'"]');
+                    var chevron=list.querySelector('[data-lbl-chevron="'+idx+'"]');
+                    if(!body)return;
+                    var isOpen=body.style.maxHeight&&body.style.maxHeight!=='0px'&&body.style.maxHeight!=='0';
+                    if(isOpen){
+                        body.style.maxHeight='0';
+                        if(chevron)chevron.style.transform='rotate(0deg)';
+                    }else{
+                        body.style.maxHeight='600px';
+                        if(chevron)chevron.style.transform='rotate(180deg)';
+                    }
+                });
+            });
+            // Toggle
+            list.querySelectorAll('[data-lbl-toggle]').forEach(function(tog){
+                tog.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    tog.classList.toggle('on');
+                    var idx=parseInt(tog.dataset.lblToggle,10);
+                    labels[idx].on=tog.classList.contains('on');
+                    saveLabels(labels);
+                });
+            });
+            // Delete
+            list.querySelectorAll('[data-lbl-del]').forEach(function(btn){
+                btn.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(btn.dataset.lblDel,10);
+                    labels.splice(idx,1);
+                    saveLabels(labels);
+                    renderLabelList();
+                });
+            });
+            // Type
+            list.querySelectorAll('[data-lbl-type]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    cap.parentElement.querySelectorAll('.cs-cap').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].type=cap.dataset.lblType;
+                    saveLabels(labels);
+                    var fw=list.querySelector('[data-lbl-fixed-wrap="'+idx+'"]');
+                    var tw=list.querySelector('[data-lbl-time-wrap="'+idx+'"]');
+                    if(labels[idx].type==='time'){if(fw)fw.style.display='none';if(tw)tw.style.display='';}
+                    else{if(fw)fw.style.display='';if(tw)tw.style.display='none';}
+                    // 更新头部标题
+                    var hd=list.querySelector('[data-lbl-header="'+idx+'"] span');
+                    if(hd)hd.textContent='#'+(idx+1)+' '+(labels[idx].type==='time'?'⏱ 时间戳':'✏ '+escapeHtml(labels[idx].text||'标签'));
+                });
+            });
+            // Format
+            list.querySelectorAll('[data-lbl-fmt]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    cap.parentElement.querySelectorAll('.cs-cap').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].format=cap.dataset.lblFmt;
+                    saveLabels(labels);
+                });
+            });
+            // Target
+            list.querySelectorAll('[data-lbl-target]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    cap.parentElement.querySelectorAll('[data-lbl-target]').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].target=cap.dataset.lblTarget;
+                    saveLabels(labels);
+                });
+            });
+            // Mode
+            list.querySelectorAll('[data-lbl-mode]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    cap.parentElement.querySelectorAll('[data-lbl-mode]').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].mode=cap.dataset.lblMode;
+                    saveLabels(labels);
+                });
+            });
+            // Position
+            list.querySelectorAll('[data-lbl-pos]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    cap.parentElement.querySelectorAll('[data-lbl-pos]').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].pos=cap.dataset.lblPos;
+                    saveLabels(labels);
+                });
+            });
+            // Text
+            list.querySelectorAll('[data-lbl-text]').forEach(function(inp){
+                var debounce=null;
+                inp.addEventListener('input',function(){
+                    var idx=parseInt(inp.dataset.lblText,10);
+                    labels[idx].text=inp.value;
+                    if(debounce)clearTimeout(debounce);
+                    debounce=setTimeout(function(){saveLabels(labels);},200);
+                });
+            });
+            // Size
+            list.querySelectorAll('[data-lbl-size]').forEach(function(sl){
+                sl.addEventListener('input',function(){
+                    var idx=parseInt(sl.dataset.lblSize,10);
+                    labels[idx].size=parseInt(sl.value,10);
+                    var v=list.querySelector('[data-lbl-size-val="'+idx+'"]');
+                    if(v)v.textContent=sl.value;
+                    saveLabels(labels);
+                });
+            });
+            // X
+            list.querySelectorAll('[data-lbl-offx]').forEach(function(sl){
+                sl.addEventListener('input',function(){
+                    var idx=parseInt(sl.dataset.lblOffx,10);
+                    labels[idx].offX=parseInt(sl.value,10);
+                    var v=list.querySelector('[data-lbl-offx-val="'+idx+'"]');
+                    if(v)v.textContent=sl.value;
+                    saveLabels(labels);
+                });
+            });
+            // Y
+            list.querySelectorAll('[data-lbl-offy]').forEach(function(sl){
+                sl.addEventListener('input',function(){
+                    var idx=parseInt(sl.dataset.lblOffy,10);
+                    labels[idx].offY=parseInt(sl.value,10);
+                    var v=list.querySelector('[data-lbl-offy-val="'+idx+'"]');
+                    if(v)v.textContent=sl.value;
+                    saveLabels(labels);
+                });
+            });
+            // Color
+            list.querySelectorAll('[data-lbl-color]').forEach(function(inp){
+                inp.addEventListener('input',function(){
+                    var idx=parseInt(inp.dataset.lblColor,10);
+                    var hex=inp.value;
+                    var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+                    labels[idx].color='rgba('+r+','+g+','+b+',0.5)';
+                    labels[idx].colorHex=hex;
+                    saveLabels(labels);
+                });
+            });
+        
+            // Delete
+            list.querySelectorAll('[data-lbl-del]').forEach(function(btn){
+                btn.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(btn.dataset.lblDel,10);
+                    labels.splice(idx,1);
+                    saveLabels(labels);
+                    renderLabelList();
+                });
+            });
+            // Type caps
+            list.querySelectorAll('[data-lbl-type]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    var row=cap.parentElement;
+                    row.querySelectorAll('.cs-cap').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].type=cap.dataset.lblType;
+                    saveLabels(labels);
+                    // 联动显隐
+                    var fw=list.querySelector('[data-lbl-fixed-wrap="'+idx+'"]');
+                    var tw=list.querySelector('[data-lbl-time-wrap="'+idx+'"]');
+                    if(labels[idx].type==='time'){if(fw)fw.style.display='none';if(tw)tw.style.display='';}
+                    else{if(fw)fw.style.display='';if(tw)tw.style.display='none';}
+                });
+            });
+            // Target caps
+            list.querySelectorAll('[data-lbl-target]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    var row=cap.parentElement;
+                    row.querySelectorAll('[data-lbl-target]').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].target=cap.dataset.lblTarget;
+                    saveLabels(labels);
+                });
+            });
+            // Mode caps
+            list.querySelectorAll('[data-lbl-mode]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    var row=cap.parentElement;
+                    row.querySelectorAll('[data-lbl-mode]').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].mode=cap.dataset.lblMode;
+                    saveLabels(labels);
+                });
+            });
+            // Position caps
+            list.querySelectorAll('[data-lbl-pos]').forEach(function(cap){
+                cap.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var idx=parseInt(cap.dataset.lblIdx,10);
+                    var row=cap.parentElement;
+                    row.querySelectorAll('[data-lbl-pos]').forEach(function(c){c.classList.remove('active');});
+                    cap.classList.add('active');
+                    labels[idx].pos=cap.dataset.lblPos;
+                    saveLabels(labels);
+                });
+            });
+            // Text input
+            list.querySelectorAll('[data-lbl-text]').forEach(function(inp){
+                inp.addEventListener('input',function(){
+                    var idx=parseInt(inp.dataset.lblText,10);
+                    labels[idx].text=inp.value;
+                    saveLabels(labels);
+                });
+            });
+            // Format select
+            list.querySelectorAll('[data-lbl-fmt]').forEach(function(sel){
+                sel.addEventListener('change',function(){
+                    var idx=parseInt(sel.dataset.lblFmt,10);
+                    labels[idx].format=sel.value;
+                    saveLabels(labels);
+                });
+            });
+            // Size slider
+            list.querySelectorAll('[data-lbl-size]').forEach(function(sl){
+                sl.addEventListener('input',function(){
+                    var idx=parseInt(sl.dataset.lblSize,10);
+                    labels[idx].size=parseInt(sl.value,10);
+                    var v=list.querySelector('[data-lbl-size-val="'+idx+'"]');
+                    if(v)v.textContent=sl.value;
+                    saveLabels(labels);
+                });
+            });
+            // X slider
+            list.querySelectorAll('[data-lbl-offx]').forEach(function(sl){
+                sl.addEventListener('input',function(){
+                    var idx=parseInt(sl.dataset.lblOffx,10);
+                    labels[idx].offX=parseInt(sl.value,10);
+                    var v=list.querySelector('[data-lbl-offx-val="'+idx+'"]');
+                    if(v)v.textContent=sl.value;
+                    saveLabels(labels);
+                });
+            });
+            // Y slider
+            list.querySelectorAll('[data-lbl-offy]').forEach(function(sl){
+                sl.addEventListener('input',function(){
+                    var idx=parseInt(sl.dataset.lblOffy,10);
+                    labels[idx].offY=parseInt(sl.value,10);
+                    var v=list.querySelector('[data-lbl-offy-val="'+idx+'"]');
+                    if(v)v.textContent=sl.value;
+                    saveLabels(labels);
+                });
+            });
+            // Color
+            list.querySelectorAll('[data-lbl-color]').forEach(function(inp){
+                inp.addEventListener('input',function(){
+                    var idx=parseInt(inp.dataset.lblColor,10);
+                    var hex=inp.value;
+                    var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+                    labels[idx].color='rgba('+r+','+g+','+b+',0.5)';
+                    labels[idx].colorHex=hex;
+                    saveLabels(labels);
+                });
+            });
+        }
+
+        // Add button
+        var addBtn=document.getElementById('csBubbleLabelAdd');
+        if(addBtn){
+            addBtn.addEventListener('click',function(){
+                var labels=loadLabels();
+                labels.push({on:true,type:'time',text:'',format:'HH:mm',target:'both',mode:'last',pos:'below',size:9,color:'rgba(26,26,31,0.3)',colorHex:'#999999',weight:'400',fontStyle:'normal',offX:0,offY:2});
+                saveLabels(labels);
+                renderLabelList();
+            });
+        }
+
+        renderLabelList();
+    })();
 
     // 符号过滤
     var filterInput=document.getElementById('csFilterChars');

@@ -63,7 +63,7 @@
 .cda-bubble{padding:8px 14px;font-size:13px;line-height:1.4;word-break:break-word;position:relative;z-index:2;border-radius:18px;overflow:hidden;font-family:'Share Tech Mono',monospace;}
 .cda-msg-row.sent .cda-bubble{background:#1a1a1f;color:rgba(255,255,255,0.9);}
 .cda-msg-row.received .cda-bubble{background:#F5F5F6;color:#1a1a1a;border:none;border-right:0.5px solid rgba(26,26,31,0.12);}
-.cda-bubble::after{
+.cda-bubble::before{
     content:"Story";
     position:absolute;
     bottom:-1px;
@@ -76,8 +76,8 @@
     white-space:nowrap;
     z-index:0;
 }
-.cda-msg-row.sent .cda-bubble::after{color:rgba(255,255,255,0.06);}
-.cda-msg-row.received .cda-bubble::after{color:rgba(0,0,0,0.12);}
+.cda-msg-row.sent .cda-bubble::before{color:rgba(255,255,255,0.06);}
+.cda-msg-row.received .cda-bubble::before{color:rgba(0,0,0,0.12);}
 
 /* 尾巴 */
 .cda-msg-row.sent.has-tail .cda-bubble-wrap::after{content:"";position:absolute;bottom:0;right:-8px;width:20px;height:15px;background:#1a1a1f;border-bottom-left-radius:14px;z-index:0;}
